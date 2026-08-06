@@ -1,0 +1,10 @@
+*.apk
+*.xapk
+scripts/build/
+scripts/work/
+base.apk
+.keystore
+*.keystore
+.idea/
+*.iml
+local.properties
