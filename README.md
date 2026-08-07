@@ -5,7 +5,7 @@ Automated JioHotstar patcher — builds a ready-to-install premium APK with cook
 <!-- LATEST_BUILD_START -->
 | Build | Version | APK | Date |
 |-------|---------|-----|------|
-| `260001` | `26.07.20.3` | [Download](https://github.com/gramnaters/patcher-build/releases/download/260001/JioHotstar-Premium-v26.07.20.3-arm64.apk) | [Release](https://github.com/gramnaters/patcher-build/releases/tag/260001) |
+| `260002` | `26.07.20.3` | [Download](https://github.com/gramnaters/patcher-build/releases/download/260002/JioHotstar-Premium-v26.07.20.3-arm64.apk) | [Release](https://github.com/gramnaters/patcher-build/releases/tag/260002) |
 <!-- LATEST_BUILD_END -->
 
 ## 📲 Install via Obtainium (recommended)
