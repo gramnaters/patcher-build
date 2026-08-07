@@ -1,0 +1,85 @@
+name: CI
+
+on:
+  schedule:
+    - cron: "0 */6 * * *" # Every 6 hours
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: ci
+  cancel-in-progress: false
+
+jobs:
+  check_update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CF_BYPASS_SOLVER_TRAWL_8191_ENABLED: "true"
+      CF_BYPASS_SOLVER_CFB_ENABLED: "true"
+    services:
+      redis:
+        image: redis:alpine
+        ports:
+          - 6379:6379
+      trawl:
+        image: ghcr.io/germondai/trawl:latest
+        ports:
+          - 8191:8191
+        env:
+          REDIS_URL: redis://redis:6379
+        options: --shm-size=1gb
+      cloudflarebypassforscraping:
+        image: ghcr.io/sarperavci/cloudflarebypassforscraping:latest
+        ports:
+          - 8000:8000
+    outputs:
+      should_build: ${{ steps.check.outputs.SHOULD_BUILD }}
+      latest_version: ${{ steps.check.outputs.LATEST_VERSION }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 1
+
+      - name: Check for new JioHotstar version
+        id: check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TRAWL_URL: http://localhost:8191/scrape
+          CFBS_URL: http://localhost:8000
+        run: |
+          set -euo pipefail
+          LATEST_RELEASED=$(gh release list --exclude-drafts -L 1 --json tagName,body 2>/dev/null | \
+            python3 -c "import sys,json; d=json.load(sys.stdin); print(d[0]['body'] if d else '')" 2>/dev/null | \
+            grep -oP 'JioHotstar version:\s*\K[0-9.]+' || echo "none")
+          echo "Latest released version: $LATEST_RELEASED"
+          LATEST_AVAILABLE=$(python3 scripts/check_update.py || echo "ERROR")
+          echo "Latest available on APKMirror: $LATEST_AVAILABLE"
+          echo "LATEST_VERSION=$LATEST_AVAILABLE" >> "$GITHUB_OUTPUT"
+          if [ "$LATEST_AVAILABLE" = "ERROR" ]; then
+            echo "SHOULD_BUILD=0" >> "$GITHUB_OUTPUT"
+            echo "Could not fetch latest version — skipping build"
+          elif [ "$LATEST_AVAILABLE" != "$LATEST_RELEASED" ]; then
+            echo "SHOULD_BUILD=1" >> "$GITHUB_OUTPUT"
+            echo "New version detected — triggering build"
+          else
+            echo "SHOULD_BUILD=0" >> "$GITHUB_OUTPUT"
+            echo "Already up to date"
+          fi
+
+  build:
+    needs: check_update
+    if: ${{ needs.check_update.outputs.should_build == '1' }}
+    uses: ./.github/workflows/build.yml
+    secrets: inherit
+
+  trigger_cleanup:
+    needs: [build]
+    if: ${{ always() && needs.build.result == 'success' }}
+    uses: ./.github/workflows/cleanup.yml
+    secrets: inherit

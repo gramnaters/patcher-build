@@ -1,0 +1,64 @@
+name: Refresh Cookies
+
+on:
+  schedule:
+    - cron: "0 */12 * * *"  # Every 12 hours
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: refresh-cookies
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 1
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Playwright
+        run: |
+          pip install playwright
+          npx playwright install chromium --with-deps
+
+      - name: Install xvfb
+        run: sudo apt-get install -y xvfb
+
+      - name: Refresh cookies
+        env:
+          COOKIES_DIR: cookies
+          HEADLESS: "0"
+        run: xvfb-run -a python3 scripts/refresh_cookies.py
+
+      - name: Check for changes
+        id: changes
+        run: |
+          if git diff --quiet cookies/; then
+            echo "changed=false" >> $GITHUB_OUTPUT
+            echo "No cookie changes"
+          else
+            echo "changed=true" >> $GITHUB_OUTPUT
+            echo "Cookies were refreshed"
+            git diff --stat cookies/
+          fi
+
+      - name: Commit refreshed cookies
+        if: steps.changes.outputs.changed == 'true'
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          branch: main
+          skip_checkout: true
+          file_pattern: cookies/*.txt
+          commit_message: "Auto-refresh Hotstar cookies [skip ci]"
