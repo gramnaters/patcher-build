@@ -1,0 +1,327 @@
+name: Build
+
+on:
+  workflow_call:
+  workflow_dispatch:
+
+concurrency:
+  group: build
+  cancel-in-progress: false
+
+env:
+  PACKAGE_NAME: in.startv.hotstar
+  ARCH: arm64-v8a
+
+jobs:
+  build:
+    permissions:
+      contents: write
+      actions: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      CF_BYPASS_SOLVER_TRAWL_8191_ENABLED: "true"
+      CF_BYPASS_SOLVER_CFB_ENABLED: "true"
+    services:
+      redis:
+        image: redis:alpine
+        ports:
+          - 6379:6379
+      trawl:
+        image: ghcr.io/germondai/trawl:latest
+        ports:
+          - 8191:8191
+        env:
+          REDIS_URL: redis://redis:6379
+        options: --shm-size=1gb
+      cloudflarebypassforscraping:
+        image: ghcr.io/sarperavci/cloudflarebypassforscraping:latest
+        ports:
+          - 8000:8000
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 1
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          accept-android-sdk-licenses: true
+
+      - name: Install apktool
+        run: |
+          APKTOOL_URL=$(curl -sL "https://api.github.com/repos/iBotPeaches/Apktool/releases/latest" | \
+            python3 -c "import sys,json; print(json.load(sys.stdin)['assets'][0]['browser_download_url'])")
+          curl -sL "$APKTOOL_URL" -o /usr/local/bin/apktool.jar
+          echo '#!/bin/bash' > /usr/local/bin/apktool
+          echo 'exec java -jar /usr/local/bin/apktool.jar "$@"' >> /usr/local/bin/apktool
+          chmod +x /usr/local/bin/apktool
+          apktool --version
+
+      - name: Resolve next version code
+        id: version
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          YEAR=$(date -u +"%y")
+          TAG=$( { gh release list --exclude-drafts -L 100 2>/dev/null || true; } | \
+            awk -F '\t' -v year="$YEAR" '$3 ~ "^" year "[0-9][0-9][0-9][0-9]$" {print $3}' | sort -nr | head -n1)
+          if [ -n "$TAG" ]; then
+            BUILD_COUNT=${TAG:2:4}
+            BUILD_COUNT=$((10#$BUILD_COUNT + 1))
+          else
+            BUILD_COUNT=1
+          fi
+          NEXT_VER_CODE=$(printf "%s%04d" "$YEAR" "$BUILD_COUNT")
+          echo "NEXT_VER_CODE=$NEXT_VER_CODE" >> "$GITHUB_OUTPUT"
+          echo "Next version code: $NEXT_VER_CODE"
+
+      - name: Validate cookie files
+        run: |
+          REQUIRED=(sessionUserUP.txt userHID.txt userPID.txt deviceId.txt)
+          for f in "${REQUIRED[@]}"; do
+            if [ ! -f "cookies/$f" ]; then
+              echo "::error::Missing cookie file: $f"
+              exit 1
+            fi
+            echo "  $f: $(wc -c < cookies/$f) bytes"
+          done
+
+      - name: Download APK (auto from APKMirror via CF bypass services)
+        env:
+          ARCH: ${{ env.ARCH }}
+          TRAWL_URL: http://localhost:8191/scrape
+          CFBS_URL: http://localhost:8000
+        run: python3 scripts/download_apk.py
+
+      - name: Read downloaded version
+        id: apk_ver
+        run: |
+          VNAME=$(cat version.txt 2>/dev/null || echo "unknown")
+          echo "version_name=$VNAME" >> "$GITHUB_OUTPUT"
+          echo "Downloaded JioHotstar version: $VNAME"
+
+      - name: Decompile APK
+        id: decompile
+        run: |
+          apktool d jiohotstar.apk -o decompiled -f 2>&1
+          if [ ! -f decompiled/AndroidManifest.xml ]; then
+            echo "::error::Decompile failed"
+            exit 1
+          fi
+          VCODE=$(grep -oP '^\s*versionCode:\s*\K[0-9]+' decompiled/apktool.yml 2>/dev/null | head -1) || true
+          VNAME=$(grep -oP "^\s*versionName:\s*\K[^'\"\n]+" decompiled/apktool.yml 2>/dev/null | tr -d "'\"" | head -1) || true
+          echo "apk_version_code=${VCODE:-unknown}" >> "$GITHUB_OUTPUT"
+          echo "apk_version_name=${VNAME:-unknown}" >> "$GITHUB_OUTPUT"
+
+      - name: Remove split APK flags & fix resources
+        run: |
+          MANIFEST="decompiled/AndroidManifest.xml"
+          sed -i 's/ android:isSplitRequired="[^"]*"//g' "$MANIFEST"
+          sed -i 's/ android:requiredSplitTypes="[^"]*"//g' "$MANIFEST"
+          sed -i 's/ android:splitTypes="[^"]*"//g' "$MANIFEST"
+          sed -i '/com.android.vending.splits.required/d' "$MANIFEST"
+          sed -i '/android:name="com.android.vending.splits"/d' "$MANIFEST"
+          sed -i 's/android:extractNativeLibs="false"/android:extractNativeLibs="true"/g' "$MANIFEST"
+          sed -i 's/android:intentMatchingFlags="[^"]*" //g' "$MANIFEST"
+          find decompiled/res/drawable* -name "*.xml" -exec \
+            sed -i 's/android:drawable="@null"/android:drawable="@android:color\/transparent"/g' {} \; 2>/dev/null || true
+
+      - name: Inject smali patches
+        run: |
+          SMALI_DIR=""
+          SMALLEST=999999
+          for dir in decompiled/smali*/; do
+            COUNT=$(find "$dir" -name "*.smali" -type f 2>/dev/null | wc -l)
+            if [ "$COUNT" -lt "$SMALLEST" ]; then SMALLEST=$COUNT; SMALI_DIR="$dir"; fi
+          done
+          [ -z "$SMALI_DIR" ] && SMALI_DIR="decompiled/smali/"
+          TARGET="$SMALI_DIR/com/hotstar/patch"
+          mkdir -p "$TARGET"
+          cp patches/CookieFileReader.smali "$TARGET/"
+          cp patches/cookie-seeder.smali "$TARGET/CookieSeeder.smali"
+          mkdir -p decompiled/assets/cookies
+          for f in cookies/*.txt; do [ -f "$f" ] && cp "$f" "decompiled/assets/cookies/$(basename "$f")"; done
+
+      - name: Patch Application class
+        run: |
+          MANIFEST="decompiled/AndroidManifest.xml"
+          APP_CLASS=$(grep -oP '<application[^>]*android:name="\K[^"]+' "$MANIFEST")
+          SMALI_PATH="${APP_CLASS//./\/}.smali"
+          FULL_PATH=""
+          for dir in decompiled/smali*/; do
+            if [ -f "${dir}${SMALI_PATH}" ]; then FULL_PATH="${dir}${SMALI_PATH}"; break; fi
+          done
+          if [ -z "$FULL_PATH" ]; then
+            CLASS_NAME=$(echo "$APP_CLASS" | sed 's/.*\.//')
+            FULL_PATH=$(find decompiled -path "*/smali*" -name "${CLASS_NAME}.smali" -type f 2>/dev/null | head -1)
+          fi
+          if [ -z "$FULL_PATH" ]; then echo "::error::Application class not found"; exit 1; fi
+          if grep -q "CookieSeeder" "$FULL_PATH"; then exit 0; fi
+          INJECT='    invoke-static {p0}, Lcom/hotstar/patch/CookieSeeder;->seedIfNeeded(Landroid/content/Context;)V'
+          LINE_NUM=$(grep -n "invoke-super" "$FULL_PATH" | head -1 | cut -d: -f1)
+          sed -i "${LINE_NUM}a\\${INJECT}" "$FULL_PATH"
+
+      - name: Patch IdentityRepository
+        run: |
+          ID_REPO=""
+          for dir in decompiled/smali*/; do
+            if [ -f "${dir}Ff/d.smali" ]; then ID_REPO="${dir}Ff/d.smali"; break; fi
+          done
+          if [ -z "$ID_REPO" ]; then echo "::warning::IdentityRepository not found - skipping"; exit 0; fi
+          if grep -q "CookieSeeder.*getInjectedUserToken" "$ID_REPO"; then exit 0; fi
+          awk '
+          function bump_locals(line) {
+              if (line ~ /\.locals [0-9]+$/) { split(line, a, " "); if (a[2] + 0 < 2) { sub(/\.locals [0-9]+$/, ".locals 2", line) } }
+              if (line ~ /\.registers [0-9]+$/) { split(line, a, " "); if (a[2] + 0 < 4) { sub(/\.registers [0-9]+$/, ".registers 4", line) } }
+              return line
+          }
+          BEGIN { in_c = 0; in_i = 0; in_ann = 0; first_inst = 0; }
+          /\.method public final c\(Ltt\/d;\)Ljava\/lang\/Object;/ { in_c = 1; in_i = 0; in_ann = 0; first_inst = 0; print; next }
+          in_c == 1 {
+            if (/\.locals [0-9]+$/ || /\.registers [0-9]+$/) { $0 = bump_locals($0); print; next }
+            if (/\.annotation build/) { in_ann = 1 }
+            if (/\.end annotation/) { in_ann = 0 }
+            if (/^\s*\.line [0-9]+\s*$/ && first_inst == 0 && !in_ann) { next }
+            if (/iget-object v0, p0, LFf\/d;->a:Ljava\/lang\/String;/ && first_inst == 0) {
+              first_inst = 1; print ""; print "    # PATCH: inject user token when field a is null"
+              print "    iget-object v0, p0, LFf/d;->a:Ljava/lang/String;"; print "    if-nez v0, :patch_orig_c"; print ""
+              print "    invoke-static {}, Lcom/hotstar/patch/CookieSeeder;->getInjectedUserToken()Ljava/lang/String;"
+              print "    move-result-object v1"; print "    if-eqz v1, :patch_orig_c"; print ""
+              print "    iput-object v1, p0, LFf/d;->a:Ljava/lang/String;"; print "    return-object v1"; print ""
+              print "    :patch_orig_c"; print ""; next
+            }
+            if (/^\.end method/) { in_c = 0 }; print; next
+          }
+          /\.method public final i\(Lye\/J;\)Ljava\/lang\/Object;/ { in_i = 1; in_c = 0; in_ann = 0; first_inst = 0; print; next }
+          in_i == 1 {
+            if (/\.locals [0-9]+$/ || /\.registers [0-9]+$/) { $0 = bump_locals($0); print; next }
+            if (/\.annotation build/) { in_ann = 1 }
+            if (/\.end annotation/) { in_ann = 0 }
+            if (/^\s*\.line [0-9]+\s*$/ && first_inst == 0 && !in_ann) { next }
+            if (/iget-object v0, p0, LFf\/d;->g:Ljava\/lang\/String;/ && first_inst == 0) {
+              first_inst = 1; print ""; print "    # PATCH: inject media token when field g is null"
+              print "    iget-object v0, p0, LFf/d;->g:Ljava/lang/String;"; print "    if-nez v0, :patch_orig_i"; print ""
+              print "    invoke-static {}, Lcom/hotstar/patch/CookieSeeder;->getInjectedMediaToken()Ljava/lang/String;"
+              print "    move-result-object v1"; print "    if-eqz v1, :patch_orig_i"; print ""
+              print "    iput-object v1, p0, LFf/d;->g:Ljava/lang/String;"; print "    return-object v1"; print ""
+              print "    :patch_orig_i"; print ""; next
+            }
+            if (/^\.end method/) { in_i = 0 }; print; next
+          }
+          { print }
+          ' "$ID_REPO" > patched_d.smali
+          [ ! -s patched_d.smali ] && { echo "::error::Patching produced empty file"; exit 1; }
+          mv patched_d.smali "$ID_REPO"
+
+      - name: Recompile APK
+        run: |
+          set +e
+          apktool b decompiled -o jiohotstar_unsigned.apk 2>&1 | tail -10
+          set -e
+          if [ ! -f jiohotstar_unsigned.apk ]; then
+            echo "::error::Recompile failed"
+            exit 1
+          fi
+          echo "Recompiled: $(ls -la jiohotstar_unsigned.apk | awk '{print $5}') bytes"
+
+      - name: Check native libs
+        id: native_check
+        run: |
+          LIB_COUNT=$(unzip -l jiohotstar_unsigned.apk 2>/dev/null | grep -c "lib/.*\.so" || true)
+          echo "lib_count=$LIB_COUNT" >> "$GITHUB_OUTPUT"
+
+      - name: Inject native libs (if missing)
+        if: steps.native_check.outputs.lib_count == '0'
+        env:
+          ANDROID_HOME: /usr/local/lib/android/sdk
+        run: |
+          if [ -f arm64_split.apk ] && [ "$(stat -c%s arm64_split.apk 2>/dev/null || echo 0)" -gt 1000000 ]; then
+            mkdir -p lib_tmp && unzip -o arm64_split.apk "lib/*" -d lib_tmp 2>/dev/null || true
+            cp jiohotstar_unsigned.apk jiohotstar_mod.apk
+            zip -d jiohotstar_mod.apk "META-INF/*" 2>/dev/null || true
+            (cd lib_tmp && zip -r ../jiohotstar_mod.apk lib/ 2>/dev/null)
+            rm -rf lib_tmp
+            BUILD_TOOLS=$(ls -d $ANDROID_HOME/build-tools/*/ 2>/dev/null | sort -V | tail -1)
+            export PATH="${BUILD_TOOLS}:${PATH}"
+            zipalign -f 4 jiohotstar_mod.apk jiohotstar_aligned.apk
+            keytool -genkeypair -v -keystore sign.keystore -alias hotstar -keyalg RSA -keysize 2048 -validity 10000 -storepass hotstarpatch -keypass hotstarpatch -dname "CN=Patcher, OU=Patch, O=HP, L=X, ST=X, C=XX" 2>/dev/null
+            apksigner sign --ks sign.keystore --ks-pass pass:hotstarpatch --ks-key-alias hotstar --key-pass pass:hotstarpatch --out jiohotstar_patched.apk jiohotstar_aligned.apk 2>/dev/null
+            rm -f jiohotstar_mod.apk jiohotstar_aligned.apk
+          else
+            cp jiohotstar_unsigned.apk jiohotstar_patched.apk
+          fi
+
+      - name: Sign APK (when libs present)
+        if: steps.native_check.outputs.lib_count != '0'
+        env:
+          ANDROID_HOME: /usr/local/lib/android/sdk
+        run: |
+          BUILD_TOOLS=$(ls -d $ANDROID_HOME/build-tools/*/ 2>/dev/null | sort -V | tail -1)
+          export PATH="${BUILD_TOOLS}:${PATH}"
+          keytool -genkeypair -v -keystore sign.keystore -alias hotstar -keyalg RSA -keysize 2048 -validity 10000 -storepass hotstarpatch -keypass hotstarpatch -dname "CN=Patcher, OU=Patch, O=HP, L=X, ST=X, C=XX" 2>/dev/null
+          zipalign -f 4 jiohotstar_unsigned.apk jiohotstar_aligned.apk
+          apksigner sign --ks sign.keystore --ks-pass pass:hotstarpatch --ks-key-alias hotstar --key-pass pass:hotstarpatch --out jiohotstar_patched.apk jiohotstar_aligned.apk 2>/dev/null
+          rm -f jiohotstar_aligned.apk
+
+      - name: Rename final APK
+        run: |
+          VNAME="${{ steps.apk_ver.outputs.version_name }}"
+          FINAL_NAME="JioHotstar-Premium-v${VNAME}-arm64.apk"
+          mkdir -p build
+          cp jiohotstar_patched.apk "build/$FINAL_NAME"
+          echo "FINAL_NAME=$FINAL_NAME" >> "$GITHUB_ENV"
+          echo "Final APK: $FINAL_NAME ($(du -h "build/$FINAL_NAME" | cut -f1))"
+
+      - name: Generate build.md (release notes)
+        env:
+          NEXT_VER_CODE: ${{ steps.version.outputs.NEXT_VER_CODE }}
+          APK_VERSION: ${{ steps.apk_ver.outputs.version_name }}
+          APK_VERSION_CODE: ${{ steps.decompile.outputs.apk_version_code }}
+          FINAL_NAME: ${{ env.FINAL_NAME }}
+          ARCH: ${{ env.ARCH }}
+        run: |
+          python3 scripts/generate_release_notes.py > build.md
+          echo "Generated build.md ($(wc -l < build.md) lines)"
+
+      - name: Get output
+        id: get_output
+        run: |
+          DELIM="$(openssl rand -hex 8)"
+          echo "BUILD_LOG<<${DELIM}" >> "$GITHUB_OUTPUT"
+          cat build.md >> "$GITHUB_OUTPUT"
+          echo "${DELIM}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload to release
+        uses: softprops/action-gh-release@v2
+        with:
+          body: ${{ steps.get_output.outputs.BUILD_LOG }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+          files: ./build/*
+          name: JioHotstar Premium v${{ steps.apk_ver.outputs.version_name }} (Build ${{ steps.version.outputs.NEXT_VER_CODE }})
+          tag_name: ${{ steps.version.outputs.NEXT_VER_CODE }}
+          overwrite_files: true
+          prerelease: false
+
+      - name: Update README
+        env:
+          NEXT_VER_CODE: ${{ steps.version.outputs.NEXT_VER_CODE }}
+          APK_VERSION: ${{ steps.apk_ver.outputs.version_name }}
+        run: |
+          python3 scripts/update_readme.py "$NEXT_VER_CODE" "$APK_VERSION" "$GITHUB_REPOSITORY"
+
+      - name: Commit updated README
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          branch: main
+          skip_checkout: true
+          file_pattern: README.md
+          commit_message: "Update README for Build No. ${{ steps.version.outputs.NEXT_VER_CODE }} [skip ci]"
