@@ -5,14 +5,16 @@ on:
     - cron: "0 */6 * * *" # Every 6 hours
   workflow_dispatch:
 
+permissions:
+  contents: write
+  actions: write
+
 concurrency:
   group: ci
   cancel-in-progress: false
 
 jobs:
   check_update:
-    permissions:
-      contents: write
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
@@ -52,12 +54,10 @@ jobs:
           CFBS_URL: http://localhost:8000
         run: |
           set -euo pipefail
-          # Get the version from the latest release (if any)
           LATEST_RELEASED=$(gh release list --exclude-drafts -L 1 --json tagName,body 2>/dev/null | \
             python3 -c "import sys,json; d=json.load(sys.stdin); print(d[0]['body'] if d else '')" 2>/dev/null | \
             grep -oP 'JioHotstar version:\s*\K[0-9.]+' || echo "none")
           echo "Latest released version: $LATEST_RELEASED"
-          # Get the latest version available on APKMirror
           LATEST_AVAILABLE=$(python3 scripts/check_update.py || echo "ERROR")
           echo "Latest available on APKMirror: $LATEST_AVAILABLE"
           echo "LATEST_VERSION=$LATEST_AVAILABLE" >> "$GITHUB_OUTPUT"
