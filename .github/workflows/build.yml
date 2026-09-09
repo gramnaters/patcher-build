@@ -122,7 +122,8 @@ jobs:
           APKEDITOR_URL=$(curl -sL "https://api.github.com/repos/REAndroid/APKEditor/releases/latest" | \
             python3 -c "import sys,json; print(json.load(sys.stdin)['assets'][0]['browser_download_url'])")
           curl -sL "$APKEDITOR_URL" -o /usr/local/bin/apkeditor.jar
-          java -jar /usr/local/bin/apkeditor.jar -v
+          # Note: APKEditor -v prints the version but exits with code 2
+          java -jar /usr/local/bin/apkeditor.jar -v || true
 
       - name: Download APK (auto from APKMirror via CF bypass services)
         env:
