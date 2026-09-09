@@ -1,8 +1,8 @@
-name: CI
+name: CI TV
 
 on:
   schedule:
-    - cron: "0 */6 * * *" # Every 6 hours
+    - cron: "30 */6 * * *" # Every 6 hours (offset from mobile)
   workflow_dispatch:
 
 permissions:
@@ -10,7 +10,7 @@ permissions:
   actions: write
 
 concurrency:
-  group: ci
+  group: ci-tv
   cancel-in-progress: false
 
 jobs:
@@ -46,12 +46,13 @@ jobs:
           ref: main
           fetch-depth: 1
 
-      - name: Check for new JioHotstar version
+      - name: Check for new JioHotstar TV version
         id: check
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TRAWL_URL: http://localhost:8191/scrape
           CFBS_URL: http://localhost:8000
+          APP_VARIANT: tv
         run: |
           set -euo pipefail
           LATEST_RELEASED=$(gh release list --exclude-drafts -L 100 --json tagName,body 2>/dev/null | \
@@ -61,7 +62,7 @@ jobs:
               d = json.load(sys.stdin)
               body = ''
               for r in d:
-                  if not r.get('tagName', '').startswith('tv'):
+                  if r.get('tagName', '').startswith('tv'):
                       body = r.get('body', '')
                       break
               m = re.search(r'JioHotstar version[^0-9]*([\d.]+)', body)
@@ -69,16 +70,16 @@ jobs:
           except Exception:
               print('none')
           " 2>/dev/null || echo "none")
-          echo "Latest released version: $LATEST_RELEASED"
+          echo "Latest released TV version: $LATEST_RELEASED"
           LATEST_AVAILABLE=$(python3 scripts/check_update.py || echo "ERROR")
-          echo "Latest available on APKMirror: $LATEST_AVAILABLE"
+          echo "Latest available TV version on APKMirror: $LATEST_AVAILABLE"
           echo "LATEST_VERSION=$LATEST_AVAILABLE" >> "$GITHUB_OUTPUT"
           if [ "$LATEST_AVAILABLE" = "ERROR" ]; then
             echo "SHOULD_BUILD=0" >> "$GITHUB_OUTPUT"
-            echo "Could not fetch latest version — skipping build"
+            echo "Could not fetch latest TV version — skipping build"
           elif [ "$LATEST_AVAILABLE" != "$LATEST_RELEASED" ]; then
             echo "SHOULD_BUILD=1" >> "$GITHUB_OUTPUT"
-            echo "New version detected — triggering build"
+            echo "New TV version detected — triggering build"
           else
             echo "SHOULD_BUILD=0" >> "$GITHUB_OUTPUT"
             echo "Already up to date"
@@ -87,5 +88,5 @@ jobs:
   build:
     needs: check_update
     if: ${{ needs.check_update.outputs.should_build == '1' }}
-    uses: ./.github/workflows/build.yml
+    uses: ./.github/workflows/build-tv.yml
     secrets: inherit

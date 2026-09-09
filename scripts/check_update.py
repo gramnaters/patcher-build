@@ -21,12 +21,21 @@ import urllib.request
 from typing import Optional
 
 # Same config as download_apk.py
-APPS = [
+MOBILE_APPS = [
     "https://www.apkmirror.com/apk/jiostar-india-private-limited/jiohotstar-4/",
     "https://www.apkmirror.com/apk/jiostar-india-private-limited/jiostar-hotstar/",
     "https://www.apkmirror.com/apk/star-india-private-limited/jiohotstar/",
     "https://www.apkmirror.com/apk/jio/jiohotstar/",
 ]
+
+TV_APPS = [
+    "https://www.apkmirror.com/apk/jiostar-india-private-limited/jiohotstar-3/",
+    "https://www.apkmirror.com/apk/jiostar-india-private-limited/hotstar-android-tv/",
+    "https://www.apkmirror.com/apk/star-india-private-limited/hotstar-android-tv/",
+]
+
+APP_VARIANT = os.environ.get("APP_VARIANT", "mobile").lower()
+APPS = TV_APPS if APP_VARIANT == "tv" else MOBILE_APPS
 TRAWL_URL = os.environ.get("TRAWL_URL", "http://localhost:8191/scrape")
 CFBS_URL = os.environ.get("CFBS_URL", "http://localhost:8000")
 FALLBACK_UA = "Mozilla/5.0 (X11; Linux x86_64; rv:109.0) Gecko/20100101 Firefox/109.0"
@@ -85,8 +94,11 @@ def find_latest_version(html: str) -> Optional[str]:
         r'href="(/apk/[^/]+/[^/]+/[^"]+-release/)"',
         html,
     )
-    # Filter to JioHotstar (avoid Disney+ Hotstar)
-    jio = [v for v in versions if "jiostar-hotstar" in v or "jiohotstar" in v]
+    # Filter to the correct app slug (avoid Disney+ Hotstar etc.)
+    if APP_VARIANT == "tv":
+        jio = [v for v in versions if "android-tv" in v]
+    else:
+        jio = [v for v in versions if "jiostar-hotstar" in v or "jiohotstar" in v]
     if jio:
         versions = jio
     # Dedupe

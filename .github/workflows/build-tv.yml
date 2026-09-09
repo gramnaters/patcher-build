@@ -66,6 +66,24 @@ jobs:
           chmod +x /usr/local/bin/apktool
           apktool --version
 
+      - name: Resolve next TV version code
+        id: version
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          YEAR=$(date -u +"%y")
+          TAG=$( { gh release list --exclude-drafts -L 100 2>/dev/null || true; } | \
+            awk -F '\t' -v year="$YEAR" '$3 ~ "^tv" year "[0-9][0-9][0-9][0-9]$" {print $3}' | sort -nr | head -n1)
+          if [ -n "$TAG" ]; then
+            BUILD_COUNT=${TAG:4:4}
+            BUILD_COUNT=$((10#$BUILD_COUNT + 1))
+          else
+            BUILD_COUNT=1
+          fi
+          NEXT_VER_CODE=$(printf "tv%s%04d" "$YEAR" "$BUILD_COUNT")
+          echo "NEXT_VER_CODE=$NEXT_VER_CODE" >> "$GITHUB_OUTPUT"
+          echo "Next TV version code: $NEXT_VER_CODE"
+
       - name: Validate cookie files
         run: |
           REQUIRED=(sessionUserUP.txt userHID.txt userPID.txt deviceId.txt)
@@ -237,9 +255,43 @@ jobs:
           echo "FINAL_NAME=$FINAL_NAME" >> "$GITHUB_ENV"
           echo "Final APK: $FINAL_NAME ($(du -h "build/$FINAL_NAME" | cut -f1))"
 
-      - name: Upload APK as debug artifact
-        uses: actions/upload-artifact@v4
+      - name: Generate build.md (release notes)
+        env:
+          NEXT_VER_CODE: ${{ steps.version.outputs.NEXT_VER_CODE }}
+          APK_VERSION: ${{ steps.apk_ver.outputs.version_name }}
+          APK_VERSION_CODE: ${{ steps.decompile.outputs.apk_version_code }}
+          FINAL_NAME: ${{ env.FINAL_NAME }}
+          ARCH: ${{ env.ARCH }}
+          APP_VARIANT: tv
+        run: |
+          python3 scripts/generate_release_notes.py > build.md
+          echo "Generated build.md ($(wc -l < build.md) lines)"
+
+      - name: Get output
+        id: get_output
+        run: |
+          DELIM="$(openssl rand -hex 8)"
+          echo "BUILD_LOG<<${DELIM}" >> "$GITHUB_OUTPUT"
+          cat build.md >> "$GITHUB_OUTPUT"
+          echo "${DELIM}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload to release
+        uses: softprops/action-gh-release@v2
         with:
-          name: JioHotstar-TV-${{ steps.apk_ver.outputs.version_name }}
-          path: build/*.apk
-          if-no-files-found: error
+          body: ${{ steps.get_output.outputs.BUILD_LOG }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+          files: ./build/*
+          name: TV Build No. ${{ steps.version.outputs.NEXT_VER_CODE }}
+          tag_name: ${{ steps.version.outputs.NEXT_VER_CODE }}
+          overwrite_files: true
+          prerelease: false
+
+  trigger_cleanup:
+    permissions:
+      contents: write
+      actions: write
+    needs: [build]
+    if: ${{ always() && needs.build.result == 'success' }}
+    uses: ./.github/workflows/cleanup.yml
+    secrets: inherit
+

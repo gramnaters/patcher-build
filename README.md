@@ -6,6 +6,8 @@ Automated JioHotstar patcher — builds a ready-to-install premium APK with cook
 | -------- | ------------ | ------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
 | `260004` | `26.07.20.3` | [Download](https://github.com/gramnaters/patcher-build/releases/download/260004/JioHotstar-Premium-v26.07.20.3-arm64.apk) | [Release](https://github.com/gramnaters/patcher-build/releases/tag/260004) |
 
+> **Android TV?** See [JioHotstar (Android TV)](#-android-tv) — a separate build with its own releases and tags.
+
 ## 📲 Install via Obtainium (recommended)
 
 Install [Obtainium](https://obtainium.imranr.dev/) from F-Droid or GitHub, then add this app:
@@ -30,6 +32,15 @@ Each release contains a single APK:
 - Architecture: `arm64-v8a`
 - Size: ~75 MB
 - Signed with a self-signed certificate
+
+## 📺 Android TV
+
+A separate Android TV build (`in.startv.hotstar`, leanback variant) is published
+under its own `tv<build>` tags and releases, updated on its own schedule:
+
+- Filename: `JioHotstar-TV-v<version>-arm64.apk`
+- Obtainium filter: `JioHotstar-TV` (see `obtainium-config.json` — it includes a second app entry)
+- Workflows: `ci-tv.yml` (checker) → `build-tv.yml` (build + release)
 
 ## ⚙️ How it works
 

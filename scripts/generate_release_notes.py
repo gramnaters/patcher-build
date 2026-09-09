@@ -29,19 +29,27 @@ def main() -> int:
     apk_vcode = env("APK_VERSION_CODE", "unknown")
     final_name = env("FINAL_NAME", "JioHotstar-Premium.apk")
     arch = env("ARCH", "arm64-v8a")
+    variant = env("APP_VARIANT", "mobile").lower()
     repo = os.environ.get("GITHUB_REPOSITORY", "gramnaters/patcher-build")
     server = os.environ.get("GITHUB_SERVER_URL", "https://github.com")
 
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
 
+    is_tv = variant == "tv"
+    app_label = "JioHotstar TV" if is_tv else "JioHotstar Premium"
+    pkg = "in.startv.hotstar (Android TV)" if is_tv else "in.startv.hotstar"
+
     # Build download URL for the asset
     asset_url = f"{server}/{repo}/releases/download/{next_ver_code}/{urllib.parse.quote(final_name)}"
 
     # Source APKMirror URL
-    apkmirror_url = "https://www.apkmirror.com/apk/jiostar-india-private-limited/jiostar-hotstar/"
+    if is_tv:
+        apkmirror_url = "https://www.apkmirror.com/apk/jiostar-india-private-limited/jiohotstar-3/"
+    else:
+        apkmirror_url = "https://www.apkmirror.com/apk/jiostar-india-private-limited/jiostar-hotstar/"
 
     lines = [
-        f"## JioHotstar Premium v{apk_version}",
+        f"## {app_label} v{apk_version}",
         "",
         f"**Build**: `{next_ver_code}`  •  **Built**: {now}",
         "",
@@ -51,7 +59,7 @@ def main() -> int:
         "",
         f"[**{final_name}**]({asset_url})",
         "",
-        f"Architecture: `{arch}`  •  Package: `in.startv.hotstar`  •  Version code: `{apk_vcode}`",
+        f"Architecture: `{arch}`  •  Package: `{pkg}`  •  Version code: `{apk_vcode}`",
         "",
         "### 🔄 Install via Obtanium",
         "",
@@ -65,6 +73,7 @@ def main() -> int:
         "### 📋 Details",
         "",
         f"- **JioHotstar version**: `{apk_version}`",
+        f"- **Variant**: `{'Android TV' if is_tv else 'Mobile'}`",
         f"- **Source**: [APKMirror]({apkmirror_url})",
         f"- **Patches**: cookie injection (CookieSeeder + IdentityRepository)",
         f"- **Architecture**: `{arch}`",
