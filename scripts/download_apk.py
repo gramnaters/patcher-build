@@ -500,6 +500,14 @@ def process_download(downloaded_path: str) -> None:
     split_apks = sorted([f for f in os.listdir(".") if f.startswith("split_config.") and f.endswith(".apk")])
     log(f"Found {len(split_apks)} split APKs: {', '.join(split_apks)}")
 
+    # Save the target-arch split (native libs) for later re-injection
+    arch_underscore = TARGET_ARCH.replace("-", "_")
+    for split_apk in split_apks:
+        if arch_underscore in split_apk and split_apk != "arm64_split.apk":
+            shutil.copy(split_apk, "arm64_split.apk")
+            log(f"Saved target-arch split: arm64_split.apk")
+            break
+
     # Merge each split into the base APK
     for split_apk in split_apks:
         log(f"Merging {split_apk}...")

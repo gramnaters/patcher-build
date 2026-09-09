@@ -214,44 +214,46 @@ jobs:
           rm -rf orig_res
           echo "Resources restored: $(unzip -l jiohotstar_unsigned.apk | grep -c 'res/') res entries"
 
-      - name: Check native libs
-        id: native_check
-        run: |
-          LIB_COUNT=$(unzip -l jiohotstar_unsigned.apk 2>/dev/null | grep -c "lib/.*\.so" || true)
-          echo "lib_count=$LIB_COUNT" >> "$GITHUB_OUTPUT"
-
-      - name: Inject native libs (if missing)
-        if: steps.native_check.outputs.lib_count == '0'
+      - name: Inject native libs & sign APK (always signed)
         env:
           ANDROID_HOME: /usr/local/lib/android/sdk
         run: |
-          if [ -f arm64_split.apk ] && [ "$(stat -c%s arm64_split.apk 2>/dev/null || echo 0)" -gt 1000000 ]; then
-            mkdir -p lib_tmp && unzip -o arm64_split.apk "lib/*" -d lib_tmp 2>/dev/null || true
-            cp jiohotstar_unsigned.apk jiohotstar_mod.apk
-            zip -d jiohotstar_mod.apk "META-INF/*" 2>/dev/null || true
-            (cd lib_tmp && zip -r ../jiohotstar_mod.apk lib/ 2>/dev/null)
-            rm -rf lib_tmp
-            BUILD_TOOLS=$(ls -d $ANDROID_HOME/build-tools/*/ 2>/dev/null | sort -V | tail -1)
-            export PATH="${BUILD_TOOLS}:${PATH}"
-            zipalign -f 4 jiohotstar_mod.apk jiohotstar_aligned.apk
-            keytool -genkeypair -v -keystore sign.keystore -alias hotstar -keyalg RSA -keysize 2048 -validity 10000 -storepass hotstarpatch -keypass hotstarpatch -dname "CN=Patcher, OU=Patch, O=HP, L=X, ST=X, C=XX" 2>/dev/null
-            apksigner sign --ks sign.keystore --ks-pass pass:hotstarpatch --ks-key-alias hotstar --key-pass pass:hotstarpatch --out jiohotstar_patched.apk jiohotstar_aligned.apk 2>/dev/null
-            rm -f jiohotstar_mod.apk jiohotstar_aligned.apk
-          else
-            cp jiohotstar_unsigned.apk jiohotstar_patched.apk
-          fi
-
-      - name: Sign APK (when libs present)
-        if: steps.native_check.outputs.lib_count != '0'
-        env:
-          ANDROID_HOME: /usr/local/lib/android/sdk
-        run: |
+          set -e
           BUILD_TOOLS=$(ls -d $ANDROID_HOME/build-tools/*/ 2>/dev/null | sort -V | tail -1)
           export PATH="${BUILD_TOOLS}:${PATH}"
-          keytool -genkeypair -v -keystore sign.keystore -alias hotstar -keyalg RSA -keysize 2048 -validity 10000 -storepass hotstarpatch -keypass hotstarpatch -dname "CN=Patcher, OU=Patch, O=HP, L=X, ST=X, C=XX" 2>/dev/null
-          zipalign -f 4 jiohotstar_unsigned.apk jiohotstar_aligned.apk
-          apksigner sign --ks sign.keystore --ks-pass pass:hotstarpatch --ks-key-alias hotstar --key-pass pass:hotstarpatch --out jiohotstar_patched.apk jiohotstar_aligned.apk 2>/dev/null
-          rm -f jiohotstar_aligned.apk
+
+          # 1) Ensure lib/ native libs are present in the recompiled APK
+          cp jiohotstar_unsigned.apk jiohotstar_mod.apk
+          LIB_COUNT=$(unzip -l jiohotstar_mod.apk 2>/dev/null | grep -c "lib/.*\.so" || true)
+          echo "Native libs in recompiled APK: $LIB_COUNT"
+          if [ "$LIB_COUNT" -eq 0 ]; then
+            LIB_SRC=""
+            if [ -f arm64_split.apk ] && [ "$(stat -c%s arm64_split.apk 2>/dev/null || echo 0)" -gt 1000000 ]; then
+              LIB_SRC="arm64_split.apk"
+            else
+              LIB_SRC="jiohotstar.apk"
+            fi
+            echo "Injecting lib/* from $LIB_SRC"
+            mkdir -p lib_tmp && unzip -o "$LIB_SRC" "lib/*" -d lib_tmp 2>/dev/null || true
+            if find lib_tmp -name "*.so" 2>/dev/null | grep -q .; then
+              zip -d jiohotstar_mod.apk "META-INF/*" 2>/dev/null || true
+              (cd lib_tmp && zip -r ../jiohotstar_mod.apk lib/ 2>/dev/null)
+              zip -d jiohotstar_mod.apk "META-INF/*" 2>/dev/null || true
+            else
+              echo "::warning::No lib/*.so found in $LIB_SRC — keeping APK as-is"
+            fi
+            rm -rf lib_tmp
+          fi
+          echo "Post-inject lib count: $(unzip -l jiohotstar_mod.apk 2>/dev/null | grep -c 'lib/.*\.so' || true)"
+
+          # 2) Always sign with the stable committed keystore
+          zipalign -f 4 jiohotstar_mod.apk jiohotstar_aligned.apk
+          apksigner sign --ks signing/hotstar.keystore --ks-pass pass:hotstarpatch --ks-key-alias hotstar --key-pass pass:hotstarpatch --v1-signing-enabled true --v2-signing-enabled true --v3-signing-enabled true --out jiohotstar_patched.apk jiohotstar_aligned.apk
+          rm -f jiohotstar_aligned.apk jiohotstar_mod.apk
+
+          # 3) Verify — fail the build if the APK is not properly signed
+          apksigner verify --verbose --print-certs jiohotstar_patched.apk
+          echo "APK_SIGNED=1" >> "$GITHUB_ENV"
 
       - name: Rename final APK
         run: |
