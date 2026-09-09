@@ -61,15 +61,24 @@ def main() -> int:
         "",
         f"Architecture: `{arch}`  •  Package: `{pkg}`  •  Version code: `{apk_vcode}`",
         "",
-        "### 🔄 Install via Obtanium",
-        "",
-        "Add this repo to [Obtainium](https://obtainium.imranr.dev/) for auto-updates:",
-        "```",
-        f"{server}/{repo}",
-        "```",
-        "Or import the [Obtainium config JSON]("
-        f"{server}/{repo}/raw/main/obtainium-config.json) directly.",
-        "",
+    ]
+
+    # Obtainium install instructions only make sense for mobile (Obtainium
+    # is a phone app; Android TV is typically sideloaded manually).
+    if not is_tv:
+        lines += [
+            "### 🔄 Install via Obtanium",
+            "",
+            "Add this repo to [Obtainium](https://obtainium.imranr.dev/) for auto-updates:",
+            "```",
+            f"{server}/{repo}",
+            "```",
+            "Or import the [Obtainium config JSON]("
+            f"{server}/{repo}/raw/main/obtainium-config.json) directly.",
+            "",
+        ]
+
+    lines += [
         "### 📋 Details",
         "",
         f"- **JioHotstar version**: `{apk_version}`",

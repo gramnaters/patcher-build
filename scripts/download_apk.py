@@ -354,6 +354,7 @@ def find_variant_link(version_html: str) -> str:
     process_download() step will extract base.apk + arm64 split.
     """
     target_norm = TARGET_ARCH.replace("-", "").lower()
+    prefer_universal = APP_VARIANT == "tv"
 
     # Variant rows are <div class="table-row headerFont">. They contain
     # nested table-cell divs, so we can't use a simple `</div>` to end the
@@ -401,6 +402,20 @@ def find_variant_link(version_html: str) -> str:
 
         is_bundle = "bundle" in text_norm
 
+        # For TV we want a universal APK (all arches: arm64 + arm-v7a + x86)
+        # so it installs on any Android TV regardless of CPU.
+        if prefer_universal:
+            if "universal" in text_norm or "noarch" in text_norm:
+                if is_bundle:
+                    if universal_bundle_link is None:
+                        universal_bundle_link = full_url
+                else:
+                    if universal_apk_link is None:
+                        universal_apk_link = full_url
+            elif not is_bundle and fallback_apk_link is None:
+                fallback_apk_link = full_url
+            continue
+
         # Prefer exact arch match (regardless of APK/BUNDLE)
         if target_norm in text_norm:
             log(f"Found {TARGET_ARCH} variant ({'BUNDLE' if is_bundle else 'APK'})")
@@ -416,6 +431,19 @@ def find_variant_link(version_html: str) -> str:
                     universal_apk_link = full_url
         elif not is_bundle and fallback_apk_link is None:
             fallback_apk_link = full_url
+
+    if prefer_universal:
+        if universal_apk_link:
+            log("Using universal APK variant (works on any TV arch)")
+            return universal_apk_link
+        if universal_bundle_link:
+            log("Using universal BUNDLE variant (all arches)")
+            return universal_bundle_link
+        if fallback_apk_link:
+            log("Using first available APK variant")
+            return fallback_apk_link
+        err(f"No universal or APK variant found for Android TV")
+        sys.exit(1)
 
     # Prefer universal APK > any other APK > universal BUNDLE
     if universal_apk_link:

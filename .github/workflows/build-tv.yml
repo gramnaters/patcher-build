@@ -10,7 +10,7 @@ concurrency:
 
 env:
   PACKAGE_NAME: in.startv.hotstar
-  ARCH: arm64-v8a
+  ARCH: universal
   APP_VARIANT: tv
 
 jobs:
@@ -250,7 +250,7 @@ jobs:
       - name: Rename final APK
         run: |
           VNAME="${{ steps.apk_ver.outputs.version_name }}"
-          FINAL_NAME="JioHotstar-TV-v${VNAME}-arm64.apk"
+          FINAL_NAME="JioHotstar-TV-v${VNAME}-universal.apk"
           mkdir -p build
           cp jiohotstar_tv_patched.apk "build/$FINAL_NAME"
           echo "FINAL_NAME=$FINAL_NAME" >> "$GITHUB_ENV"

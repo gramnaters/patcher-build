@@ -38,8 +38,7 @@ Each release contains a single APK:
 A separate Android TV build (`in.startv.hotstar`, leanback variant) is published
 under its own `tv<build>` tags and releases, updated on its own schedule:
 
-- Filename: `JioHotstar-TV-v<version>-arm64.apk`
-- Obtainium filter: `JioHotstar-TV` (see `obtainium-config.json` — it includes a second app entry)
+- Filename: `JioHotstar-TV-v<version>-universal.apk` (works on any TV — arm64-v8a, armeabi-v7a, x86)
 - Workflows: `ci-tv.yml` (checker) → `build-tv.yml` (build + release)
 
 ## ⚙️ How it works
