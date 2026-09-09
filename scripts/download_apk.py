@@ -362,6 +362,11 @@ def find_variant_link(version_html: str) -> str:
     # The first chunk is the header (Variant/Architecture/...).
     chunks = re.split(r'(?=<div class="table-row)', version_html)
     rows = [c for c in chunks if 'class="table-row' in c[:200]]
+    if not rows:
+        # Layout may have changed — try alternate marker
+        chunks = re.split(r'(?=<div class="[^"]*table-row[^"]*")', version_html)
+        rows = [c for c in chunks if 'table-row' in c[:300]]
+    log(f"  DEBUG: {len(rows)} variant rows; html len {len(version_html)}")
 
     target_link: Optional[str] = None      # exact arch match
     universal_apk_link: Optional[str] = None   # universal APK
@@ -373,6 +378,7 @@ def find_variant_link(version_html: str) -> str:
         text_norm = text.lower().replace("-", "").replace(" ", "")
         if not text_norm:
             continue
+        log(f"  variant row: {text_norm[:120]}")
 
         # Skip the header row (contains "variant" + "architecture")
         if text_norm.startswith("variantarch") or text_norm == "variantarchitectureversionminimumversiondpiscreendpi":
@@ -401,7 +407,6 @@ def find_variant_link(version_html: str) -> str:
         full_url = urllib.parse.urljoin("https://www.apkmirror.com", href)
 
         is_bundle = "bundle" in text_norm
-        log(f"  variant row: {text_norm[:80]}")
 
         # For TV we want a universal APK (all arches: arm64 + arm-v7a + x86)
         # so it installs on any Android TV regardless of CPU.
