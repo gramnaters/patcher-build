@@ -47,12 +47,25 @@ from typing import Optional, Tuple
 
 # Default to the same URL rvb uses for JioHotstar. The publisher recently
 # renamed from "star-india-private-limited" to "jiostar-india-private-limited".
-APPS = [
+MOBILE_APPS = [
     "https://www.apkmirror.com/apk/jiostar-india-private-limited/jiohotstar-4/",
     "https://www.apkmirror.com/apk/jiostar-india-private-limited/jiostar-hotstar/",
     "https://www.apkmirror.com/apk/star-india-private-limited/jiohotstar/",
     "https://www.apkmirror.com/apk/jio/jiohotstar/",
 ]
+
+# Android TV is a SEPARATE APKMirror listing (own version track, universal
+# arm64-v8a + x86 arch), but keeps the same package name in.startv.hotstar.
+TV_APPS = [
+    "https://www.apkmirror.com/apk/jiostar-india-private-limited/hotstar-android-tv-2/",
+    "https://www.apkmirror.com/apk/jiostar-india-private-limited/hotstar-android-tv/",
+    "https://www.apkmirror.com/apk/star-india-private-limited/hotstar-android-tv-2/",
+    "https://www.apkmirror.com/apk/star-india-private-limited/hotstar-android-tv/",
+]
+
+# APP_VARIANT=tv selects the Android TV listing; anything else is mobile.
+APP_VARIANT = os.environ.get("APP_VARIANT", "mobile").lower()
+APPS = TV_APPS if APP_VARIANT == "tv" else MOBILE_APPS
 OUTPUT_APK = os.environ.get("OUTPUT", "jiohotstar.apk")
 TARGET_ARCH = os.environ.get("ARCH", "arm64-v8a").lower()
 # arm-v7a -> armeabi-v7a (APKMirror naming)
@@ -238,10 +251,15 @@ def find_latest_version(app_html: str, app_url: str) -> Tuple[str, str]:
             app_html,
         )
 
-    # Filter to JioHotstar only (avoid Disney+ Hotstar etc.)
-    jio_versions = [v for v in versions if "jiostar-hotstar" in v or "jiohotstar" in v]
-    if jio_versions:
-        versions = jio_versions
+    # Filter to the correct app slug (avoid Disney+ Hotstar etc.).
+    if APP_VARIANT == "tv":
+        tv_versions = [v for v in versions if "hotstar-android-tv" in v]
+        if tv_versions:
+            versions = tv_versions
+    else:
+        jio_versions = [v for v in versions if "jiostar-hotstar" in v or "jiohotstar" in v]
+        if jio_versions:
+            versions = jio_versions
 
     # Dedupe (preserve order)
     seen = set()
