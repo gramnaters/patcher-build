@@ -56,15 +56,15 @@ jobs:
           set -euo pipefail
           LATEST_RELEASED=$(gh release list --exclude-drafts -L 1 --json tagName,body 2>/dev/null | \
             python3 -c "
-import sys, json, re
-try:
-    d = json.load(sys.stdin)
-    body = d[0]['body'] if d else ''
-    m = re.search(r'JioHotstar version[^0-9]*([\d.]+)', body)
-    print(m.group(1) if m else 'none')
-except Exception:
-    print('none')
-" 2>/dev/null || echo "none")
+          import sys, json, re
+          try:
+              d = json.load(sys.stdin)
+              body = d[0]['body'] if d else ''
+              m = re.search(r'JioHotstar version[^0-9]*([\d.]+)', body)
+              print(m.group(1) if m else 'none')
+          except Exception:
+              print('none')
+          " 2>/dev/null || echo "none")
           echo "Latest released version: $LATEST_RELEASED"
           LATEST_AVAILABLE=$(python3 scripts/check_update.py || echo "ERROR")
           echo "Latest available on APKMirror: $LATEST_AVAILABLE"
