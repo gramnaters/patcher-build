@@ -98,13 +98,18 @@ jobs:
       - name: Install Playwright for cookie refresh
         run: |
           pip install playwright
-          python3 -m playwright install chromium --with-deps || true
+          # GitHub runners break on dl.google.com/linux/chrome-stable (flaky,
+          # "Hash Sum mismatch"). Remove it so apt only uses Azure/Ubuntu mirrors.
+          sudo rm -f /etc/apt/sources.list.d/google-chrome.list /etc/apt/sources.list.d/google.list 2>/dev/null || true
+          sudo apt-get update || true
+          sudo apt-get install -y --no-install-recommends libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 libasound2 libatspi2.0-0 xvfb || true
           for i in 1 2 3; do
-            sudo apt-get update && sudo apt-get install -y libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 libasound2 libatspi2.0-0
             python3 -m playwright install chromium && break
             sleep 10
           done
-          sudo apt-get install -y xvfb
+          sudo rm -f /etc/apt/sources.list.d/google-chrome.list /etc/apt/sources.list.d/google.list 2>/dev/null || true
+          sudo apt-get update || true
+          sudo apt-get install -y --no-install-recommends xvfb libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 libasound2 libatspi2.0-0 || true
 
       - name: Refresh Hotstar cookies
         env:
