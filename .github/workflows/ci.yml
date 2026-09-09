@@ -54,12 +54,12 @@ jobs:
           CFBS_URL: http://localhost:8000
         run: |
           set -euo pipefail
-          LATEST_RELEASED=$(gh release list --exclude-drafts -L 1 --json tagName,body 2>/dev/null | \
+          LATEST_RELEASED=$(gh release view --json tagName,body 2>/dev/null | \
             python3 -c "
           import sys, json, re
           try:
               d = json.load(sys.stdin)
-              body = d[0]['body'] if d else ''
+              body = d.get('body', '')
               m = re.search(r'JioHotstar version[^0-9]*([\d.]+)', body)
               print(m.group(1) if m else 'none')
           except Exception:
