@@ -352,75 +352,48 @@ def find_variant_link(version_html: str) -> str:
     then to the first available APK variant. If only a BUNDLE is available
     (which contains base.apk + arch-specific splits), we take that — the
     process_download() step will extract base.apk + arm64 split.
+
+    For Android TV we want the all-arch variant (arm64-v8a + armeabi-v7a)
+    so the single APK installs on any TV CPU.
     """
     target_norm = TARGET_ARCH.replace("-", "").lower()
     prefer_universal = APP_VARIANT == "tv"
 
-    # Variant rows are <div class="table-row headerFont">. They contain
-    # nested table-cell divs, so we can't use a simple `</div>` to end the
-    # match. Instead, split on `<div class="table-row` to get row chunks.
-    # The first chunk is the header (Variant/Architecture/...).
-    # DEBUG: dump context around variant keywords and download links
-    all_dls = re.findall(r'href="(/apk/[^"]+-android-apk-download/)"', version_html)
-    log(f"  DEBUG: {len(all_dls)} download links found")
-    for d in all_dls[:10]:
-        log(f"    dl: {d}")
-    for kw in ("universal", "noarch", "nodpi", "arm64-v8a", "armeabi-v7a", "arm-v7a"):
-        cnt = len(re.findall(kw, version_html, re.IGNORECASE))
-        log(f"  DEBUG: '{kw}' occurrences: {cnt}")
+    # Collect every variant download link and its position.
+    # A variant row's arch text sits in a sibling table-cell just after the
+    # download link, so we inspect the HTML window following each link.
+    all_dls = [(m.start(), m.group(1)) for m in
+               re.finditer(r'href="(/apk/[^"]+-android-apk-download/)"', version_html)]
 
-    chunks = re.split(r'(?=<div class="table-row)', version_html)
-    rows = [c for c in chunks if 'class="table-row' in c[:200]]
-    if not rows:
-        # Layout may have changed — try alternate marker
-        chunks = re.split(r'(?=<div class="[^"]*table-row[^"]*")', version_html)
-        rows = [c for c in chunks if 'table-row' in c[:300]]
-    log(f"  DEBUG: {len(rows)} variant rows; html len {len(version_html)}")
+    # For TV, the release usually has ONE all-arch variant (arm64-v8a +
+    # armeabi-v7a combined). If there's a single link, just take it.
+    if prefer_universal and len(all_dls) == 1:
+        href = all_dls[0][1].split("#")[0]
+        full_url = urllib.parse.urljoin("https://www.apkmirror.com", href)
+        log("Using single all-arch TV variant")
+        return full_url
 
-    target_link: Optional[str] = None      # exact arch match
-    universal_apk_link: Optional[str] = None   # universal APK
-    universal_bundle_link: Optional[str] = None  # universal BUNDLE (fallback)
+    universal_apk_link: Optional[str] = None
+    universal_bundle_link: Optional[str] = None
     fallback_apk_link: Optional[str] = None
 
-    for row in rows:
-        text = re.sub(r"<[^>]+>", " ", row)
-        text_norm = text.lower().replace("-", "").replace(" ", "")
-        if not text_norm:
-            continue
-        log(f"  variant row: {text_norm[:120]}")
-
-        # Skip the header row (contains "variant" + "architecture")
-        if text_norm.startswith("variantarch") or text_norm == "variantarchitectureversionminimumversiondpiscreendpi":
-            continue
-        # Skip "Related Releases" rows
-        if "filesize:" in text_norm or "uploaded:" in text_norm:
-            continue
-
-        # Find the variant download link. URL ends in `-android-apk-download/`
-        link_match = re.search(
-            r'href="(/apk/[^"]+-android-apk-download/)"',
-            row,
-        )
-        if not link_match:
-            # Fallback: any /apk/ link that isn't a #disqus_thread anchor
-            link_match = re.search(
-                r'href="(/apk/[^"]+)"',
-                row,
-            )
-            if link_match and "#disqus_thread" in link_match.group(1):
-                continue
-        if not link_match:
-            continue
-
-        href = link_match.group(1).split("#")[0]
+    for pos, href in all_dls:
+        href = href.split("#")[0]
         full_url = urllib.parse.urljoin("https://www.apkmirror.com", href)
 
-        is_bundle = "bundle" in text_norm
+        # Look at the surrounding HTML to determine arch + type
+        window = version_html[pos:pos + 2500]
+        text = re.sub(r"<[^>]+>", " ", window)
+        text_norm = text.lower().replace("-", "").replace(" ", "")
 
-        # For TV we want a universal APK (all arches: arm64 + arm-v7a + x86)
-        # so it installs on any Android TV regardless of CPU.
+        is_bundle = "bundle" in text_norm
+        has_universal = "universal" in text_norm or "noarch" in text_norm
+        has_arm64 = "arm64v8a" in text_norm
+        has_armv7 = "armeabiv7a" in text_norm or "armv7a" in text_norm
+        all_arch = has_arm64 and has_armv7
+
         if prefer_universal:
-            if "universal" in text_norm or "noarch" in text_norm:
+            if has_universal or all_arch:
                 if is_bundle:
                     if universal_bundle_link is None:
                         universal_bundle_link = full_url
@@ -431,13 +404,11 @@ def find_variant_link(version_html: str) -> str:
                 fallback_apk_link = full_url
             continue
 
-        # Prefer exact arch match (regardless of APK/BUNDLE)
+        # Mobile: exact arch match wins immediately
         if target_norm in text_norm:
             log(f"Found {TARGET_ARCH} variant ({'BUNDLE' if is_bundle else 'APK'})")
             return full_url
-
-        # Track universal variants
-        if "universal" in text_norm or "noarch" in text_norm:
+        if has_universal:
             if is_bundle:
                 if universal_bundle_link is None:
                     universal_bundle_link = full_url
@@ -449,15 +420,15 @@ def find_variant_link(version_html: str) -> str:
 
     if prefer_universal:
         if universal_apk_link:
-            log("Using universal APK variant (works on any TV arch)")
+            log("Using all-arch/universal APK variant (works on any TV)")
             return universal_apk_link
         if universal_bundle_link:
-            log("Using universal BUNDLE variant (all arches)")
+            log("Using all-arch/universal BUNDLE variant (all arches)")
             return universal_bundle_link
         if fallback_apk_link:
             log("Using first available APK variant")
             return fallback_apk_link
-        err(f"No universal or APK variant found for Android TV")
+        err("No universal or APK variant found for Android TV")
         sys.exit(1)
 
     # Prefer universal APK > any other APK > universal BUNDLE
