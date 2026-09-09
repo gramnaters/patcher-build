@@ -364,7 +364,8 @@ def find_variant_link(version_html: str) -> str:
     for kw in ("universal", "noarch", "nodpi", "arm64-v8a", "armeabi-v7a"):
         idx = version_html.lower().find(kw)
         if idx >= 0:
-            log(f"  HTML[{kw}] @ {idx}: ...{re.sub(r'\s+', ' ', version_html[max(0,idx-160):idx+200])}...")
+            snippet = re.sub(r"\s+", " ", version_html[max(0, idx - 160):idx + 200])
+            log(f"  HTML[{kw}] @ {idx}: ...{snippet}...")
             break
 
     chunks = re.split(r'(?=<div class="table-row)', version_html)
