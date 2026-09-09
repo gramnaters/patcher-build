@@ -1,6 +1,7 @@
 name: Build Android TV (debug)
 
 on:
+  workflow_call:
   workflow_dispatch:
 
 concurrency:
