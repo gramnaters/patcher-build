@@ -360,13 +360,17 @@ def find_variant_link(version_html: str) -> str:
     # nested table-cell divs, so we can't use a simple `</div>` to end the
     # match. Instead, split on `<div class="table-row` to get row chunks.
     # The first chunk is the header (Variant/Architecture/...).
-    # DEBUG: dump context around variant keywords
+    # DEBUG: dump context around variant keywords and download links
     for kw in ("universal", "noarch", "nodpi", "arm64-v8a", "armeabi-v7a"):
         idx = version_html.lower().find(kw)
         if idx >= 0:
             snippet = re.sub(r"\s+", " ", version_html[max(0, idx - 160):idx + 200])
             log(f"  HTML[{kw}] @ {idx}: ...{snippet}...")
             break
+    dl = version_html.find("-android-apk-download/")
+    if dl >= 0:
+        snippet = re.sub(r"\s+", " ", version_html[max(0, dl - 300):dl + 60])
+        log(f"  HTML[download] @ {dl}: ...{snippet}...")
 
     chunks = re.split(r'(?=<div class="table-row)', version_html)
     rows = [c for c in chunks if 'class="table-row' in c[:200]]
