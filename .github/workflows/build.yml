@@ -98,7 +98,12 @@ jobs:
       - name: Install Playwright for cookie refresh
         run: |
           pip install playwright
-          python3 -m playwright install chromium --with-deps
+          python3 -m playwright install chromium --with-deps || true
+          for i in 1 2 3; do
+            sudo apt-get update && sudo apt-get install -y libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 libasound2 libatspi2.0-0
+            python3 -m playwright install chromium && break
+            sleep 10
+          done
           sudo apt-get install -y xvfb
 
       - name: Refresh Hotstar cookies
