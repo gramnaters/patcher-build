@@ -107,11 +107,19 @@ jobs:
           HEADLESS: "0"
         run: xvfb-run -a python3 scripts/refresh_cookies.py
 
+      - name: Install APKEditor (split table merger)
+        run: |
+          APKEDITOR_URL=$(curl -sL "https://api.github.com/repos/REAndroid/APKEditor/releases/latest" | \
+            python3 -c "import sys,json; print(json.load(sys.stdin)['assets'][0]['browser_download_url'])")
+          curl -sL "$APKEDITOR_URL" -o /usr/local/bin/apkeditor.jar
+          java -jar /usr/local/bin/apkeditor.jar -v
+
       - name: Download APK (auto from APKMirror via CF bypass services)
         env:
           ARCH: ${{ env.ARCH }}
           TRAWL_URL: http://localhost:8191/scrape
           CFBS_URL: http://localhost:8000
+          APKEDITOR_JAR: /usr/local/bin/apkeditor.jar
         run: python3 scripts/download_apk.py
 
       - name: Read downloaded version

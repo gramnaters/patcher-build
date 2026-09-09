@@ -59,6 +59,13 @@ TARGET_ARCH = os.environ.get("ARCH", "arm64-v8a").lower()
 if TARGET_ARCH == "arm-v7a":
     TARGET_ARCH = "armeabi-v7a"
 
+# APKEditor jar used to properly merge split resource tables (resources.arsc)
+# across all config splits. Unlike a raw `zip` merge, this produces a single
+# APK whose resources.arsc contains the union of ALL split resources — which
+# is required or the app crashes with Resources$NotFoundException for IDs that
+# live only in a split's table (e.g. density-specific drawables).
+APKEDITOR_JAR = os.environ.get("APKEDITOR_JAR", "/usr/local/bin/apkeditor.jar")
+
 TRAWL_URL = os.environ.get("TRAWL_URL", "http://localhost:8191/scrape")
 CFBS_URL  = os.environ.get("CFBS_URL",  "http://localhost:8000")
 
@@ -465,7 +472,16 @@ def process_download(downloaded_path: str) -> None:
     If we only extract base.apk, the app crashes with Resources$NotFoundException
     because drawables referenced in resources.arsc are missing.
 
-    Fix: extract ALL splits and merge their contents into base.apk.
+    NOTE: each config split carries its OWN resources.arsc. A naive file-level
+    `zip` merge alone cannot combine the split resource tables — the resulting
+    APK keeps only ONE resources.arsc and loses every resource ID that only
+    exists in a split's table (e.g. density-specific drawables). That made the
+    app crash with `Resources$NotFoundException` (e.g. resource #0x7f08023c).
+
+    Fix: merge with APKEditor (`java -jar APKEditor.jar m`), which properly
+    fuses the split resources.arsc tables into a single complete table, and
+    also sanitizes the manifest (removes splitTypes/isSplitRequired/
+    com.android.vending.splits meta-data etc.).
     """
     with open(downloaded_path, "rb") as f:
         magic = f.read(4)
@@ -487,7 +503,65 @@ def process_download(downloaded_path: str) -> None:
         shutil.move(downloaded_path, OUTPUT_APK)
         return
 
-    log("APKM bundle detected — extracting base.apk + ALL splits")
+    log("APKM bundle detected — merging via APKEditor")
+
+    # Save the target-arch split (native libs) for later re-injection fallback
+    arch_underscore = TARGET_ARCH.replace("-", "_")
+    try:
+        with zipfile.ZipFile(downloaded_path, "r") as z:
+            for name in z.namelist():
+                if not name.endswith(".apk"):
+                    continue
+                if arch_underscore in name:
+                    split_data = z.read(name)
+                    if len(split_data) > 1_000_000:
+                        with open("arm64_split.apk", "wb") as w:
+                            w.write(split_data)
+                        log(f"Saved target-arch split: arm64_split.apk ({len(split_data) / 1024 / 1024:.1f} MB)")
+                        break
+    except Exception as e:
+        log(f"Warning: could not save target-arch split: {e}")
+
+    if not os.path.exists(APKEDITOR_JAR):
+        log("APKEDITOR_JAR not found — falling back to legacy zip merge")
+        _legacy_zip_merge(downloaded_path)
+        return
+
+    cmd = [
+        "java", "-jar", APKEDITOR_JAR, "m",
+        "-i", downloaded_path,
+        "-o", OUTPUT_APK,
+        "-f",
+    ]
+    log(f"Running APKEditor merge: {' '.join(cmd[:4])} ...")
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=1800)
+    except FileNotFoundError:
+        log("java not found — falling back to legacy zip merge")
+        _legacy_zip_merge(downloaded_path)
+        return
+    except subprocess.TimeoutExpired:
+        err("APKEditor merge timed out")
+        sys.exit(1)
+
+    if result.returncode != 0:
+        err("APKEditor merge failed")
+        log(result.stdout[-4000:] if result.stdout else "")
+        log(result.stderr[-4000:] if result.stderr else "")
+        sys.exit(1)
+
+    if not os.path.exists(OUTPUT_APK) or os.path.getsize(OUTPUT_APK) < 5_000_000:
+        err("merged APK too small or missing")
+        sys.exit(1)
+
+    final_mb = os.path.getsize(OUTPUT_APK) / 1024 / 1024
+    log(f"Ready: {OUTPUT_APK} ({final_mb:.1f} MB) — splits merged via APKEditor")
+    os.remove(downloaded_path)
+
+
+def _legacy_zip_merge(downloaded_path: str) -> None:
+    """Fallback: naive file-level split merge (does NOT fuse resources.arsc)."""
+    log("APKM bundle detected — extracting base.apk + ALL splits (legacy)")
 
     # Extract ALL files from the bundle
     with zipfile.ZipFile(downloaded_path, "r") as z:
