@@ -213,9 +213,47 @@ def cf_get(url: str, referer: str = "") -> Optional[str]:
 # APKMirror scraping — port of rvb's dl_apkmirror
 # ---------------------------------------------------------------------------
 
+def search_app_page() -> Optional[str]:
+    """Fallback: discover the app-listing URL via APKMirror search.
+
+    Returns the first /apk/<publisher>/<app>/ listing URL whose slug matches
+    the current variant (mobile -> jiohotstar/hotstar; tv -> android-tv).
+    """
+    keywords = (
+        ["hotstar tv", "jiohotstar tv", "hotstar-android-tv"]
+        if APP_VARIANT == "tv"
+        else ["jiohotstar", "hotstar"]
+    )
+    seen = set()
+    for kw in keywords:
+        url = ("https://www.apkmirror.com/?post_type=app_release"
+               "&searchtype=apk&s=" + urllib.parse.quote(kw))
+        log(f"  search: {kw}")
+        html = cf_get(url)
+        if not html:
+            continue
+        for l in re.findall(r'href="(/apk/[^/]+/[^/]+/)"', html):
+            l = l.split("#")[0]
+            if l in seen:
+                continue
+            seen.add(l)
+            slug = l.rstrip("/").split("/")[-1]
+            if APP_VARIANT == "tv":
+                if "tv" in slug or "leanback" in slug:
+                    log(f"  found TV listing: {l}")
+                    return "https://www.apkmirror.com" + l
+            else:
+                if "jiohotstar" in slug or "hotstar" in slug:
+                    log(f"  found listing: {l}")
+                    return "https://www.apkmirror.com" + l
+    return None
+
+
 def find_app_page() -> Tuple[str, str]:
-    """Find the JioHotstar app page (try multiple publisher slugs)."""
-    for app_url in APPS:
+    """Find the JioHotstar app page (try multiple publisher slugs, then search)."""
+    candidates = list(APPS)
+    # Dynamic search discovery (append, not replace) for robustness
+    for app_url in candidates:
         log(f"Trying app page: {app_url}")
         html = cf_get(app_url)
         if not html:
@@ -227,7 +265,15 @@ def find_app_page() -> Tuple[str, str]:
             log("  no version rows, trying next URL")
             continue
         return app_url, html
-    err("Could not find JioHotstar app page on APKMirror (tried all known URLs)")
+
+    log("Hardcoded URLs failed — searching APKMirror...")
+    found = search_app_page()
+    if found:
+        html = cf_get(found)
+        if html and "Page Not Found" not in html and "<h1>404" not in html:
+            return found, html
+
+    err("Could not find JioHotstar app page on APKMirror (tried all known URLs + search)")
     sys.exit(1)
 
 
