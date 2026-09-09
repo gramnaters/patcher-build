@@ -16,6 +16,8 @@ jobs:
   refresh:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    outputs:
+      changed: ${{ steps.changes.outputs.changed }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -31,10 +33,15 @@ jobs:
       - name: Install Playwright
         run: |
           pip install playwright
-          python3 -m playwright install chromium --with-deps
-
-      - name: Install xvfb
-        run: sudo apt-get install -y xvfb
+          # GitHub runners break on dl.google.com/linux/chrome-stable (flaky,
+          # "Hash Sum mismatch"). Install deps directly instead of --with-deps.
+          sudo rm -f /etc/apt/sources.list.d/google-chrome.list /etc/apt/sources.list.d/google.list 2>/dev/null || true
+          sudo apt-get update || true
+          sudo apt-get install -y --no-install-recommends libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 libasound2 libatspi2.0-0 xvfb || true
+          for i in 1 2 3; do
+            python3 -m playwright install chromium && break
+            sleep 10
+          done
 
       - name: Refresh cookies
         env:
@@ -46,10 +53,10 @@ jobs:
         id: changes
         run: |
           if git diff --quiet cookies/; then
-            echo "changed=false" >> $GITHUB_OUTPUT
+            echo "changed=false" >> "$GITHUB_OUTPUT"
             echo "No cookie changes"
           else
-            echo "changed=true" >> $GITHUB_OUTPUT
+            echo "changed=true" >> "$GITHUB_OUTPUT"
             echo "Cookies were refreshed"
             git diff --stat cookies/
           fi
@@ -62,3 +69,9 @@ jobs:
           skip_checkout: true
           file_pattern: cookies/*.txt
           commit_message: "Auto-refresh Hotstar cookies [skip ci]"
+
+  rebuild:
+    needs: refresh
+    if: ${{ needs.refresh.outputs.changed == 'true' }}
+    uses: ./.github/workflows/build.yml
+    secrets: inherit

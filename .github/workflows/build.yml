@@ -107,9 +107,6 @@ jobs:
             python3 -m playwright install chromium && break
             sleep 10
           done
-          sudo rm -f /etc/apt/sources.list.d/google-chrome.list /etc/apt/sources.list.d/google.list 2>/dev/null || true
-          sudo apt-get update || true
-          sudo apt-get install -y --no-install-recommends xvfb libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 libasound2 libatspi2.0-0 || true
 
       - name: Refresh Hotstar cookies
         env:
@@ -327,3 +324,12 @@ jobs:
           skip_checkout: true
           file_pattern: README.md
           commit_message: "Update README for Build No. ${{ steps.version.outputs.NEXT_VER_CODE }} [skip ci]"
+
+  trigger_cleanup:
+    permissions:
+      contents: write
+      actions: write
+    needs: [build]
+    if: ${{ always() && needs.build.result == 'success' }}
+    uses: ./.github/workflows/cleanup.yml
+    secrets: inherit

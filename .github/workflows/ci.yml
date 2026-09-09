@@ -56,7 +56,7 @@ jobs:
           set -euo pipefail
           LATEST_RELEASED=$(gh release list --exclude-drafts -L 1 --json tagName,body 2>/dev/null | \
             python3 -c "import sys,json; d=json.load(sys.stdin); print(d[0]['body'] if d else '')" 2>/dev/null | \
-            grep -oP 'JioHotstar version:\s*\K[0-9.]+' || echo "none")
+            grep -oP 'JioHotstar version[^0-9]*\K[0-9.]+' || echo "none")
           echo "Latest released version: $LATEST_RELEASED"
           LATEST_AVAILABLE=$(python3 scripts/check_update.py || echo "ERROR")
           echo "Latest available on APKMirror: $LATEST_AVAILABLE"
@@ -76,10 +76,4 @@ jobs:
     needs: check_update
     if: ${{ needs.check_update.outputs.should_build == '1' }}
     uses: ./.github/workflows/build.yml
-    secrets: inherit
-
-  trigger_cleanup:
-    needs: [build]
-    if: ${{ always() && needs.build.result == 'success' }}
-    uses: ./.github/workflows/cleanup.yml
     secrets: inherit
