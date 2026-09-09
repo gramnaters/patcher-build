@@ -401,6 +401,7 @@ def find_variant_link(version_html: str) -> str:
         full_url = urllib.parse.urljoin("https://www.apkmirror.com", href)
 
         is_bundle = "bundle" in text_norm
+        log(f"  variant row: {text_norm[:80]}")
 
         # For TV we want a universal APK (all arches: arm64 + arm-v7a + x86)
         # so it installs on any Android TV regardless of CPU.
