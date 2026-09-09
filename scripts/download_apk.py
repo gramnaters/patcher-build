@@ -56,10 +56,11 @@ MOBILE_APPS = [
 
 # Android TV is a SEPARATE APKMirror listing (own version track, universal
 # arm64-v8a + x86 arch), but keeps the same package name in.startv.hotstar.
+# Current listing: jiostar-india-private-limited/jiohotstar-3 (slug
+# "jiohotstar-android-tv-26-08-17-0-release").
 TV_APPS = [
-    "https://www.apkmirror.com/apk/jiostar-india-private-limited/hotstar-android-tv-2/",
+    "https://www.apkmirror.com/apk/jiostar-india-private-limited/jiohotstar-3/",
     "https://www.apkmirror.com/apk/jiostar-india-private-limited/hotstar-android-tv/",
-    "https://www.apkmirror.com/apk/star-india-private-limited/hotstar-android-tv-2/",
     "https://www.apkmirror.com/apk/star-india-private-limited/hotstar-android-tv/",
 ]
 
@@ -299,7 +300,7 @@ def find_latest_version(app_html: str, app_url: str) -> Tuple[str, str]:
 
     # Filter to the correct app slug (avoid Disney+ Hotstar etc.).
     if APP_VARIANT == "tv":
-        tv_versions = [v for v in versions if "hotstar-android-tv" in v]
+        tv_versions = [v for v in versions if "android-tv" in v]
         if tv_versions:
             versions = tv_versions
     else:
