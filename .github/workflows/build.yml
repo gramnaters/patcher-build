@@ -98,7 +98,7 @@ jobs:
       - name: Install Playwright for cookie refresh
         run: |
           pip install playwright
-          npx playwright install chromium --with-deps
+          python3 -m playwright install chromium --with-deps
           sudo apt-get install -y xvfb
 
       - name: Refresh Hotstar cookies
