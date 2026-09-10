@@ -1,4 +1,4 @@
-name: Build Android TV (debug)
+name: Build Android TV
 
 on:
   workflow_call:

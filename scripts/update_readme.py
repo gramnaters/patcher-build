@@ -5,17 +5,11 @@ Update README.md with the latest build version + release URL.
 Usage:
     python3 scripts/update_readme.py <NEXT_VER_CODE> <APK_VERSION> <GITHUB_REPOSITORY>
 
-Updates the placeholder `<!-- LATEST_BUILD -->` block in README.md with
-the new build info. The block is delimited by:
-    <!-- LATEST_BUILD_START -->
-    ...
-    <!-- LATEST_BUILD_END -->
-
-If the markers aren't present, the script is a no-op.
+Updates the block delimited by `<!-- LATEST_BUILD_START -->` and
+`<!-- LATEST_BUILD_END -->` in README.md with the new mobile build info.
 """
 from __future__ import annotations
 
-import os
 import re
 import sys
 from pathlib import Path
@@ -41,7 +35,6 @@ def main() -> int:
 
     content = readme.read_text(encoding="utf-8")
 
-    # Pattern: between START and END markers
     pattern = re.compile(
         r"<!-- LATEST_BUILD_START -->[\s\S]*?<!-- LATEST_BUILD_END -->",
         re.MULTILINE,

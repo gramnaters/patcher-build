@@ -2,9 +2,11 @@
 
 Automated JioHotstar patcher — builds a ready-to-install premium APK with cookie injection. No root required. Scheduled builds every 6 hours.
 
-| Build    | Version      | APK                                                                                                                       | Date                                                                       |
-| -------- | ------------ | ------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
-| `260004` | `26.07.20.3` | [Download](https://github.com/gramnaters/patcher-build/releases/download/260004/JioHotstar-Premium-v26.07.20.3-arm64.apk) | [Release](https://github.com/gramnaters/patcher-build/releases/tag/260004) |
+<!-- LATEST_BUILD_START -->
+| Build | Version | APK | Date |
+|-------|---------|-----|------|
+| `260109` | `26.08.17.3` | [Download](https://github.com/gramnaters/patcher-build/releases/download/260109/JioHotstar-Premium-v26.08.17.3-arm64.apk) | [Release](https://github.com/gramnaters/patcher-build/releases/tag/260109) |
+<!-- LATEST_BUILD_END -->
 
 > **Android TV?** See [JioHotstar (Android TV)](#-android-tv) — a separate build with its own releases and tags.
 
@@ -60,11 +62,14 @@ under its own `tv<build>` tags and releases, updated on its own schedule:
 
 | Workflow      | Schedule                      | Purpose                                                   |
 | ------------- | ----------------------------- | --------------------------------------------------------- |
-| `ci.yml`      | Every 6 hours (`0 */6 * * *`) | Check for new versions on APKMirror                       |
-| `build.yml`   | Triggered by CI               | Build + publish new release                               |
-| `cleanup.yml` | After each build              | Keep latest 30 releases, delete workflow runs >3 days old |
+| `ci.yml`      | Every 6 hours (`0 */6 * * *`) | Check for new mobile versions on APKMirror                |
+| `build.yml`   | Triggered by CI               | Build + publish new mobile release                        |
+| `ci-tv.yml`   | Manual only                   | Check for new Android TV versions (manual trigger)        |
+| `build-tv.yml`| Manual only                   | Build + publish Android TV release                        |
+| `refresh-cookies.yml` | Every 12 hours       | Refresh cookies; rebuild mobile if JWT near expiry        |
+| `cleanup.yml` | After each build              | Keep latest 5 releases, delete workflow runs >3 days old  |
 
-You can also trigger builds manually via the **Actions** tab → **CI** → **Run workflow**.
+You can trigger builds manually via the **Actions** tab → **CI** / **CI TV** → **Run workflow**.
 
 ## 🍪 Updating cookies
 
@@ -97,6 +102,7 @@ Cookies are bundled into the APK at build time under `assets/cookies/`. To updat
 ├── scripts/
 │   ├── download_apk.py       # APKMirror downloader (CF bypass)
 │   ├── check_update.py       # Lightweight version check
+│   ├── patch_userprefs.py    # Auth token injection patch
 │   ├── generate_release_notes.py
 │   └── update_readme.py
 ├── obtainium-config.json     # Obtainium import config
