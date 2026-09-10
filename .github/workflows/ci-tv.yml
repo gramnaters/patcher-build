@@ -53,22 +53,21 @@ jobs:
           APP_VARIANT: tv
         run: |
           set -euo pipefail
-          TAG=$(gh release list --exclude-drafts -L 100 --json tagName 2>/dev/null | \
-            python3 -c "import sys,json; print(next((r['tagName'] for r in json.load(sys.stdin) if r['tagName'].startswith('tv')), ''))")
-          LATEST_RELEASED=none
-          if [ -n "$TAG" ]; then
-            LATEST_RELEASED=$(gh release view "$TAG" --json body 2>/dev/null | \
-              python3 -c "
-            import sys, json, re
-            try:
-                d = json.load(sys.stdin)
-                body = d.get('body', '')
-                m = re.search(r'JioHotstar version[^0-9]*([\d.]+)', body)
-                print(m.group(1) if m else 'none')
-            except Exception:
-                print('none')
-            " 2>/dev/null || echo "none")
-          fi
+          LATEST_RELEASED=$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" 2>/dev/null | \
+            python3 -c "
+          import sys, json, re
+          try:
+              rels = json.load(sys.stdin)
+              body = ''
+              for r in rels:
+                  if r.get('tag_name', '').startswith('tv'):
+                      body = r.get('body', '') or ''
+                      break
+              m = re.search(r'JioHotstar version[^0-9]*([\d.]+)', body)
+              print(m.group(1) if m else 'none')
+          except Exception:
+              print('none')
+          " 2>/dev/null || echo "none")
           echo "Latest released TV version: $LATEST_RELEASED"
           LATEST_AVAILABLE=$(python3 scripts/check_update.py || echo "ERROR")
           echo "Latest available TV version on APKMirror: $LATEST_AVAILABLE"
