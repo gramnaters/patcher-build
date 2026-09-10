@@ -5,7 +5,7 @@ Automated JioHotstar patcher — builds a ready-to-install premium APK with cook
 <!-- LATEST_BUILD_START -->
 | Build | Version | APK | Date |
 |-------|---------|-----|------|
-| `260109` | `26.08.17.3` | [Download](https://github.com/gramnaters/patcher-build/releases/download/260109/JioHotstar-Premium-v26.08.17.3-arm64.apk) | [Release](https://github.com/gramnaters/patcher-build/releases/tag/260109) |
+| `260110` | `26.08.31.3` | [Download](https://github.com/gramnaters/patcher-build/releases/download/260110/JioHotstar-Premium-v26.08.31.3-arm64.apk) | [Release](https://github.com/gramnaters/patcher-build/releases/tag/260110) |
 <!-- LATEST_BUILD_END -->
 
 > **Android TV?** See [JioHotstar (Android TV)](#-android-tv) — a separate build with its own releases and tags.
