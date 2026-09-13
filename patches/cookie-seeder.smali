@@ -1,13 +1,14 @@
 .class public Lcom/hotstar/patch/CookieSeeder;
 .super Ljava/lang/Object;
 
-# JioHotstar Auth Injection v5.0 — with self-refresh
+# JioHotstar Auth Injection v6.0 — with graceful expiry handling
 #
 # ARCHITECTURE:
 # - CookieSeeder reads sessionUserUP, userUP, device creds from assets/cookies/
 # - On each launch: checks if cached JWT is expired
-# - If expired: calls refreshViaHttp() which hits the BFF to get a fresh JWT
-# - Patched UserPreferences methods return the static values
+# - If expired: clears static fields → app shows login screen (graceful)
+# - isTokenValid() checks expiry on every call (for mid-session expiry)
+# - Patched UserPreferences methods return static values only when valid
 #
 # FIELDS: injected credentials
 .field private static injectedUserToken:Ljava/lang/String;
@@ -29,6 +30,12 @@
     return-object v0
 .end method
 
+.method public static getInjectedMediaToken()Ljava/lang/String;
+    .registers 1
+    sget-object v0, Lcom/hotstar/patch/CookieSeeder;->injectedUserToken:Ljava/lang/String;
+    return-object v0
+.end method
+
 .method public static getInjectedHid()Ljava/lang/String;
     .registers 1
     sget-object v0, Lcom/hotstar/patch/CookieSeeder;->injectedHid:Ljava/lang/String;
@@ -45,6 +52,60 @@
     .registers 1
     sget-object v0, Lcom/hotstar/patch/CookieSeeder;->injectedDeviceId:Ljava/lang/String;
     return-object v0
+.end method
+
+# Returns true if the current injected token is not expired
+# Called by patched UserPreferences getters on every API call
+.method public static isTokenValid()Z
+    .registers 7
+    sget-object v0, Lcom/hotstar/patch/CookieSeeder;->injectedUserToken:Ljava/lang/String;
+    if-eqz v0, :return_false
+
+    invoke-virtual {v0}, Ljava/lang/String;->length()I
+    move-result v1
+    if-lez v1, :return_false
+
+    # check_jwt: token is non-null and non-empty, check JWT exp
+    invoke-static {v0}, Lcom/hotstar/patch/CookieSeeder;->jwtExp(Ljava/lang/String;)J
+    move-result-wide v2
+
+    invoke-static {}, Ljava/lang/System;->currentTimeMillis()J
+    move-result-wide v4
+    const-wide/16 v6, 0x3e8
+    div-long/2addr v4, v6
+
+    # v2 = exp (seconds), v4 = now (seconds)
+    # v2 - v4 = remaining seconds
+    sub-long/2addr v2, v4
+
+    # If remaining > 300 (5 min), token is valid
+    const-wide/16 v4, 0x12c
+    cmp-long v0, v2, v4
+    if-lez v0, :return_false
+
+    :return_true
+    const/4 v0, 0x1
+    return v0
+
+    :return_false
+    const/4 v0, 0x0
+    return v0
+.end method
+
+# Clear all injected tokens (for graceful logout on expiry)
+.method public static clearAll()V
+    .registers 2
+    const-string v0, "HotstarPatch"
+    const-string v1, "Clearing all injected tokens (expired)"
+    invoke-static {v0, v1}, Landroid/util/Log;->w(Ljava/lang/String;Ljava/lang/String;)I
+
+    const-string v0, ""
+    sput-object v0, Lcom/hotstar/patch/CookieSeeder;->injectedUserToken:Ljava/lang/String;
+    sput-object v0, Lcom/hotstar/patch/CookieSeeder;->injectedUserUP:Ljava/lang/String;
+    sput-object v0, Lcom/hotstar/patch/CookieSeeder;->injectedHid:Ljava/lang/String;
+    sput-object v0, Lcom/hotstar/patch/CookieSeeder;->injectedPid:Ljava/lang/String;
+    sput-object v0, Lcom/hotstar/patch/CookieSeeder;->injectedDeviceId:Ljava/lang/String;
+    return-void
 .end method
 
 .method public constructor <init>()V
@@ -166,7 +227,7 @@
 
     if-eqz v7, :do_seed
 
-    # Have cached token — check if it's expired or near-expiry
+    # Have cached token — check if it's expired
     invoke-static {v7}, Lcom/hotstar/patch/CookieSeeder;->jwtExp(Ljava/lang/String;)J
     move-result-wide v8
 
@@ -175,18 +236,26 @@
     const-wide/16 v12, 0x3e8
     div-long/2addr v10, v12
 
-    # If exp > now + 3600 (1h buffer), token is still good — restore from prefs and return
+    # Check: exp - now (in seconds)
     sub-long/2addr v8, v10
-    const-wide/16 v12, 0xe10
+
+    # If exp > now + 300 (5 min buffer), token is still good — restore from prefs
+    const-wide/16 v12, 0x12c
     cmp-long v2, v8, v12
     if-lez v2, :restore_from_prefs
 
-    const-string v2, "Cached token valid, restoring"
-    invoke-static {v0, v2}, Landroid/util/Log;->d(Ljava/lang/String;Ljava/lang/String;)I
-    goto :restore_from_prefs
+    # Token expired — clear prefs cache and try re-seeding from assets
+    const-string v2, "Cached token EXPIRED, clearing and re-seeding from assets"
+    invoke-static {v0, v2}, Landroid/util/Log;->w(Ljava/lang/String;Ljava/lang/String;)I
+
+    invoke-interface {v4}, Landroid/content/SharedPreferences;->edit()Landroid/content/SharedPreferences$Editor;
+    move-result-object v6
+    invoke-interface {v6}, Landroid/content/SharedPreferences$Editor;->clear()Landroid/content/SharedPreferences$Editor;
+    invoke-interface {v6}, Landroid/content/SharedPreferences$Editor;->apply()V
+    goto :do_seed
 
     :restore_from_prefs
-    # Restore all static fields from prefs
+    # Restore all static fields from prefs (token is still valid)
     const-string v6, "cached_user_token"
     invoke-interface {v4, v6, v3}, Landroid/content/SharedPreferences;->getString(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;
     move-result-object v7
@@ -240,6 +309,26 @@
     move-result v8
     if-lez v8, :skip_user_token
 
+    # token is non-empty, check expiry
+    :check_token_expiry
+    # Check if asset token is also expired
+    invoke-static {v7}, Lcom/hotstar/patch/CookieSeeder;->jwtExp(Ljava/lang/String;)J
+    move-result-wide v8
+    invoke-static {}, Ljava/lang/System;->currentTimeMillis()J
+    move-result-wide v10
+    const-wide/16 v12, 0x3e8
+    div-long/2addr v10, v12
+    sub-long/2addr v8, v10
+    const-wide/16 v10, 0x12c
+    cmp-long v2, v8, v10
+    if-lez v2, :asset_token_valid
+
+    # Asset token also expired — don't seed, let app show login
+    const-string v2, "Asset token ALSO expired — app will show login screen"
+    invoke-static {v0, v2}, Landroid/util/Log;->w(Ljava/lang/String;Ljava/lang/String;)I
+    goto :skip_user_token
+
+    :asset_token_valid
     sput-object v7, Lcom/hotstar/patch/CookieSeeder;->injectedUserToken:Ljava/lang/String;
 
     invoke-interface {v4}, Landroid/content/SharedPreferences;->edit()Landroid/content/SharedPreferences$Editor;

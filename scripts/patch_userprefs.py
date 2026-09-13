@@ -7,7 +7,10 @@ descriptor carries an obfuscated continuation type, e.g.
   .method public final getUserTokenValue(LAu/a;)Ljava/lang/Object;
 We preserve the ORIGINAL method signature/descriptor and only swap the
 body so every existing call site keeps resolving, then return our
-injected values from CookieSeeder static fields.
+ injected values from CookieSeeder static fields.
+
+v6: Adds JWT expiry check — returns null if token expired, letting
+the app's native login screen appear instead of looping errors.
 
 Usage: python3 patch_userprefs.py <decompiled_dir>
 """
@@ -53,9 +56,18 @@ def patch_method(content: str, method_name: str, getter: str) -> str:
     .annotation build Lorg/jetbrains/annotations/Nullable;
     .end annotation
 
-    # PATCH: return injected value from CookieSeeder
+    # PATCH v6: Check JWT expiry — return null if expired (graceful login screen)
+    invoke-static {{}}, Lcom/hotstar/patch/CookieSeeder;->isTokenValid()Z
+    move-result v0
+    if-eqz v0, :return_null
+
+    # Token valid — return injected value
     invoke-static {{}}, Lcom/hotstar/patch/CookieSeeder;->{getter}()Ljava/lang/String;
     move-result-object v0
+    return-object v0
+
+    :return_null
+    const/4 v0, 0x0
     return-object v0
 .end method"""
     return content[: match.start()] + new_body + content[match.end() :]
